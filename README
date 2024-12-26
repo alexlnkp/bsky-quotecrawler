@@ -1,0 +1,25 @@
+bsky-quotecrawler
+
+PREREQUISITES
+1. you'll need a C compiler
+2. you'll need libcurl in your lib path
+3. you'll need json-c in your lib path
+
+
+
+BUILDING
+1. run `cc -o nob nob.c`
+2. run `./nob`
+3. ???
+4. profit (hopefully)
+
+
+this tool is a work-in-progress. not a lot is implemented right now.
+planned features:
+1. bsky authentication    [ ]
+2. raylib gui             [ ]
+3. faster requests        [ ]
+4. emscripten compilation [ ]
+
+considered features:
+1. a better algorithm w/o recursion [ ]
