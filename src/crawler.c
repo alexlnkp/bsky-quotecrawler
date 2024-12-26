@@ -8,18 +8,25 @@
 
 #include "crawler.h"
 
-#define USERAGENT "libcurl-agent/1.0"
+/* useragent to use for requests */
+#define REQ_USERAGENT "libcurl-agent/1.0"
 
+/* max length for the actor string. example actor string: `413x1nkp.bsky.social` */
 #define MAX_ACTOR_LENGTH 128
+
+/* DID length. example: `did:plc:ybflevxvh5zylcoxbohxu224` */
 #define DID_LEN 32
 
+/* AT protocol string. used inplace of http/https */
 #define ATPROTO "at://"
 
 CURL *curl; /* internal curl instance. don't touch */
 CURLM *multi_handle; /* multi handle for asynchronous requests. don't touch */
 
-char* extract_post_id(const char* url) {
-    const char* last_slash = strrchr(url, '/');
+
+
+char* extract_post_id(const char* post_url) {
+    const char* last_slash = strrchr(post_url, '/');
     if (last_slash != NULL) {
         return strdup(last_slash + 1);
     }
@@ -27,9 +34,9 @@ char* extract_post_id(const char* url) {
 }
 
 
-const char* get_actor(const char* post) {
+const char* get_actor(const char* post_url) {
     char* actor = malloc(MAX_ACTOR_LENGTH * sizeof(char));
-    const char* profile_start = strstr(post, "profile/");
+    const char* profile_start = strstr(post_url, "profile/");
 
     if (!profile_start) goto failure;
     profile_start += strlen("profile/");
@@ -57,6 +64,7 @@ struct MemoryStruct {
 };
 
 
+/* basic MemoryStruct initializer */
 struct MemoryStruct init_MemoryStruct() {
     struct MemoryStruct chunk;
 
@@ -67,7 +75,12 @@ struct MemoryStruct init_MemoryStruct() {
 }
 
 
+/* write callback function used for curl requests */
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+    /* had to add this because of this odd warning:
+     * call to ‘_curl_easy_setopt_err_write_callback’
+     * declared with attribute warning: curl_easy_setopt
+     * expects a curl_write_callback argument for this option */
     struct MemoryStruct* ud = userp;
     size_t realsize = size * nmemb;
     ud->memory = realloc(ud->memory, ud->size + realsize + 1);
@@ -93,8 +106,9 @@ void shared_curl_init(void) {
         exit(1);
     }
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, USERAGENT);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, REQ_USERAGENT);
 }
+
 
 void shared_curl_destroy(void) {
     curl_easy_cleanup(curl);
@@ -146,6 +160,7 @@ char* get_did(const char *actor) {
 }
 
 
+/* add a quote request to our curl-multi */
 void add_quote_request(const char* actor_did, const char* post_id, struct MemoryStruct *chunk) {
     char url[256];
     snprintf(url, sizeof(url), "https://public.api.bsky.app/xrpc/app.bsky.feed.getQuotes?uri=%s%s/app.bsky.feed.post/%s", ATPROTO, actor_did, post_id);
@@ -158,6 +173,7 @@ void add_quote_request(const char* actor_did, const char* post_id, struct Memory
 }
 
 
+/* process completed curl-multi requests */
 void process_completed_requests(void) {
     int still_running = 0;
     do {
@@ -178,6 +194,7 @@ void process_completed_requests(void) {
 }
 
 
+/* get quotes from a post */
 json_object* get_quotes(const char* actor_did, const char* post_id) {
     struct MemoryStruct chunk = init_MemoryStruct();
     add_quote_request(actor_did, post_id, &chunk);
@@ -195,6 +212,7 @@ json_object* get_quotes(const char* actor_did, const char* post_id) {
 }
 
 
+/* check if quote was already visited */
 int is_visited(const char* post_identifier, char** visited, int visited_count) {
     for (int i = 0; i < visited_count; i++) {
         if (strcmp(visited[i], post_identifier) == 0) return 1;
@@ -203,6 +221,7 @@ int is_visited(const char* post_identifier, char** visited, int visited_count) {
 }
 
 
+/* mark the quote as visited */
 void add_visited(const char* post_identifier, char*** visited, int* visited_count) {
     *visited = realloc(*visited, (*visited_count + 1) * sizeof(char*));
     (*visited)[*visited_count] = strdup(post_identifier);
@@ -242,6 +261,9 @@ void recursive_quote_search(const char* actor_did, const char* post_id,
 }
 
 
+/* get DID from given AT-URI. example:
+ * input: "at://did:plc:ybflevxvh5zylcoxbohxu224/app.bsky.feed.post/3l7det4aqy52h";
+ * output: "did:plc:ybflevxvh5zylcoxbohxu224" */
 char* get_did_from_uri(const char* uri) {
     char* did = calloc(DID_LEN, sizeof(char));
     strncpy(did, uri + strlen(ATPROTO), DID_LEN);
