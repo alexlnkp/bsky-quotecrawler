@@ -151,6 +151,7 @@ char* get_did(const char *actor) {
     if (json_object_object_get_ex(parsed_json, "did", &did_obj)) {
         const char *did = json_object_get_string(did_obj);
         result = strdup(did);
+        json_object_put(did_obj);
     }
 
     json_object_put(parsed_json);
