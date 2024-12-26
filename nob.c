@@ -16,7 +16,7 @@ int main(int argc, char* argv[]) {
     nob_cmd_append(&cmd, STR_OR_DEFAULT(CC, DEFAULT_CC));
     nob_cmd_append(&cmd, "-O3");
     nob_cmd_append(&cmd, "-o", "out/main");
-    nob_cmd_append(&cmd, "src/main.c");
+    nob_cmd_append(&cmd, "src/main.c", "src/crawler.c");
     nob_cmd_append(&cmd, "-lcurl", "-ljson-c");
 
     nob_cmd_run_sync(cmd);
