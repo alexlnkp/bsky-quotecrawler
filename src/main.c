@@ -16,6 +16,8 @@
 
 #define ATPROTO "at://"
 
+CURL *curl;
+
 char* extract_post_id(const char* url) {
     const char* last_slash = strrchr(url, '/');
     if (last_slash != NULL) {
@@ -77,36 +79,21 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, str
 }
 
 char* get_did(const char *actor) {
-    CURL *curl;
     CURLcode res;
-    struct MemoryStruct chunk;
+    struct MemoryStruct chunk = init_MemoryStruct();
 
     char* result = "unk";
-
-    chunk.memory = malloc(1);
-    chunk.size = 0;
-
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-    curl = curl_easy_init();
-
-    if (!curl) {
-        fprintf(stderr, "failed to init cURL to get DID\n");
-        return result;
-    }
 
     char url[128 + MAX_ACTOR_LENGTH];
     snprintf(url, sizeof(url), "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=%s", actor);
 
     curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, USERAGENT);
 
     res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
         fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
         free(chunk.memory);
-        curl_easy_cleanup(curl);
         return result;
     }
 
@@ -115,7 +102,6 @@ char* get_did(const char *actor) {
     if (response_code != 200) {
         fprintf(stderr, "cURL request failed! response - %ld\nRAW: %s\n", response_code, chunk.memory);
         free(chunk.memory);
-        curl_easy_cleanup(curl);
         return result;
     }
 
@@ -130,13 +116,11 @@ char* get_did(const char *actor) {
 
     json_object_put(parsed_json);
     free(chunk.memory);
-    curl_easy_cleanup(curl);
 
     return result;
 }
 
 json_object* get_quotes(const char* actor_did, const char* post_id) {
-    CURL *curl;
     CURLcode res;
 
     char url[256];
@@ -146,15 +130,7 @@ json_object* get_quotes(const char* actor_did, const char* post_id) {
 
     json_object *json_response = NULL;
 
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-    curl = curl_easy_init();
-    if (!curl) {
-        fprintf(stderr, "failed to init cURL to get DID");
-        return NULL;
-    }
-
     curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
     res = curl_easy_perform(curl);
 
@@ -169,7 +145,6 @@ json_object* get_quotes(const char* actor_did, const char* post_id) {
         }
     }
 
-    curl_easy_cleanup(curl);
     return json_response;
 }
 
@@ -187,7 +162,8 @@ void add_visited(const char* post_identifier, char*** visited, int* visited_coun
     (*visited_count)++;
 }
 
-void recursive_quote_search(const char* actor_did, const char* post_id, char*** visited, int* visited_count, char*** all_quotes, int* all_quotes_count) {
+void recursive_quote_search(const char* actor_did, const char* post_id,
+                            char*** visited, int* visited_count, char*** all_quotes, int* all_quotes_count) {
     char post_identifier[256];
     snprintf(post_identifier, sizeof(post_identifier), "%s/%s", actor_did, post_id);
 
@@ -250,7 +226,28 @@ char* post_uri_to_https(const char *uri) {
 }
 
 
+void shared_curl_init() {
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+
+    curl = curl_easy_init();
+    if (!curl) {
+        fprintf(stderr, "Failed to initialize cURL\n");
+        exit(1);
+    }
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, USERAGENT);
+}
+
+
+void shared_curl_destroy() {
+    curl_easy_cleanup(curl);
+}
+
+
 int main(void) {
+    shared_curl_init();
+
     const char* actor = get_actor(POST_URL);
     char *did = get_did(actor);
     char *post_id = extract_post_id(POST_URL);
@@ -282,6 +279,7 @@ int main(void) {
     free(post_id);
     free((char*)actor);
 
+    shared_curl_destroy();
     curl_global_cleanup();
 
     return 0;
