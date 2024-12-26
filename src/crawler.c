@@ -25,6 +25,9 @@ CURLM *multi_handle; /* multi handle for asynchronous requests. don't touch */
 
 
 
+/* we need to signal main thread somehow */
+extern void signal_main_thread(void);
+
 char* extract_post_id(const char* post_url) {
     const char* last_slash = strrchr(post_url, '/');
     if (last_slash != NULL) {
@@ -250,6 +253,8 @@ void recursive_quote_search(const char* actor_did, const char* post_id,
             (*all_quotes) = realloc(*all_quotes, (*all_quotes_count + 1) * sizeof(char*));
             (*all_quotes)[*all_quotes_count] = strdup(post_uri);
             (*all_quotes_count)++;
+
+            signal_main_thread();
 
             const char* quoted_actor_did = json_object_get_string(json_object_object_get(json_object_object_get(post, "author"), "did"));
             char* quoted_post_id = extract_post_id(post_uri);
