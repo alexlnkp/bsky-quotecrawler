@@ -1,8 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <json-c/json.h>
-
 #include "crawler.h"
 
 /* placeholder url */
