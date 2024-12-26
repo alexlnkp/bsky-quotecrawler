@@ -16,6 +16,7 @@
 #define ATPROTO "at://"
 
 CURL *curl; /* internal curl instance. don't touch */
+CURLM *multi_handle; /* multi handle for asynchronous requests. don't touch */
 
 char* extract_post_id(const char* url) {
     const char* last_slash = strrchr(url, '/');
@@ -66,38 +67,38 @@ struct MemoryStruct init_MemoryStruct() {
 }
 
 
-static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, struct MemoryStruct *userp) {
+static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+    struct MemoryStruct* ud = userp;
     size_t realsize = size * nmemb;
-    userp->memory = realloc(userp->memory, userp->size + realsize + 1);
-    if (userp->memory == NULL) {
+    ud->memory = realloc(ud->memory, ud->size + realsize + 1);
+    if (ud->memory == NULL) {
         fprintf(stderr, "Not enough memory (realloc returned NULL)\n");
         return 0;
     }
 
-    memcpy(&(userp->memory[userp->size]), contents, realsize);
+    memcpy(&(ud->memory[ud->size]), contents, realsize);
 
-    userp->size += realsize;
-    userp->memory[userp->size] = 0;
+    ud->size += realsize;
+    ud->memory[ud->size] = 0;
     return realsize;
 }
 
 
 void shared_curl_init(void) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
-
     curl = curl_easy_init();
-    if (!curl) {
+    multi_handle = curl_multi_init();
+    if (!curl || !multi_handle) {
         fprintf(stderr, "Failed to initialize cURL\n");
         exit(1);
     }
-
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, USERAGENT);
 }
 
-
 void shared_curl_destroy(void) {
     curl_easy_cleanup(curl);
+    curl_multi_cleanup(multi_handle);
     curl_global_cleanup();
 }
 
@@ -145,31 +146,51 @@ char* get_did(const char *actor) {
 }
 
 
-json_object* get_quotes(const char* actor_did, const char* post_id) {
-    CURLcode res;
-
+void add_quote_request(const char* actor_did, const char* post_id, struct MemoryStruct *chunk) {
     char url[256];
     snprintf(url, sizeof(url), "https://public.api.bsky.app/xrpc/app.bsky.feed.getQuotes?uri=%s%s/app.bsky.feed.post/%s", ATPROTO, actor_did, post_id);
 
+    CURL *easy_handle = curl_easy_init();
+    curl_easy_setopt(easy_handle, CURLOPT_URL, url);
+    curl_easy_setopt(easy_handle, CURLOPT_WRITEDATA, (void*)chunk);
+    curl_easy_setopt(easy_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_multi_add_handle(multi_handle, easy_handle);
+}
+
+
+void process_completed_requests(void) {
+    int still_running = 0;
+    do {
+        curl_multi_perform(multi_handle, &still_running);
+    } while (still_running);
+
+    CURLMsg *msg;
+    int msgs_left;
+    while ((msg = curl_multi_info_read(multi_handle, &msgs_left))) {
+        if (msg->msg == CURLMSG_DONE) {
+            struct MemoryStruct *chunk;
+            curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &chunk);
+            curl_multi_remove_handle(multi_handle, msg->easy_handle);
+            curl_easy_cleanup(msg->easy_handle);
+            free(chunk);
+        }
+    }
+}
+
+
+json_object* get_quotes(const char* actor_did, const char* post_id) {
     struct MemoryStruct chunk = init_MemoryStruct();
+    add_quote_request(actor_did, post_id, &chunk);
+    process_completed_requests();
 
     json_object *json_response = NULL;
-
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
-    res = curl_easy_perform(curl);
-
-    if (res != CURLE_OK) {
-        fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-        free(chunk.memory);
-        chunk.memory = NULL;
-    } else {
+    if (chunk.size > 0) {
         json_response = json_tokener_parse(chunk.memory);
         if (json_response == NULL) {
             fprintf(stderr, "failed to parse JSON response from get_quotes()\n");
         }
     }
-
+    free(chunk.memory);
     return json_response;
 }
 
