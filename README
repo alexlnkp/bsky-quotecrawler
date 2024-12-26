@@ -4,6 +4,7 @@ PREREQUISITES
 1. you'll need a C compiler
 2. you'll need libcurl in your lib path
 3. you'll need json-c in your lib path
+4. you'll need pthread in your lib path (and support for it)
 
 
 
