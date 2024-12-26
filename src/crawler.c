@@ -284,10 +284,10 @@ char* post_uri_to_https(const char *uri) {
 
     char* did = get_did_from_uri(uri);
     char* post_id = extract_post_id(uri);
-    strcat(result, base);                                                 /* append base     */
-    strncat(result + strlen(base), did, DID_LEN);                         /* append did      */
-    strcat(result + strlen(base) + DID_LEN, post_path);                   /* append `/post/` */
-    strcat(result + strlen(base) + DID_LEN + strlen(post_path), post_id); /* append post id  */
+    strcat(result, base);          /* append base     */
+    strncat(result, did, DID_LEN); /* append did      */
+    strcat(result, post_path);     /* append `/post/` */
+    strcat(result, post_id);       /* append post id  */
     /* result should be already null-terminated since we used calloc() */
 
     free(did);
