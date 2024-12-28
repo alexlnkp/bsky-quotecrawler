@@ -20,6 +20,35 @@
 
 char* post_id;
 
+char* get_did_from_uri(const char* uri);
+void get_quotes(const char* actor_did, const char* post_id);
+char* extract_post_id(const char* post_url);
+
+char* post_uri_to_https(const char *uri) {
+    if (strncmp(uri, ATPROTO, 5) != 0) return (char*)uri;
+
+    size_t result_size = 128;
+    char* result = calloc(result_size, sizeof(char));
+
+    const char *base = "https://bsky.app/profile/";
+    const char *post_path = "/post/";
+    const char *app_path = "/app.bsky.feed.post/";
+
+    char* did = get_did_from_uri(uri);
+    char* post_id = extract_post_id(uri);
+    strcat(result, base);          /* append base     */
+    strncat(result, did, DID_LEN); /* append did      */
+    strcat(result, post_path);     /* append `/post/` */
+    strcat(result, post_id);       /* append post id  */
+    /* result should be already null-terminated since we used calloc() */
+
+    free(did);
+    free(post_id);
+
+    return result;
+}
+
+
 const char* get_actor(const char* post_url) {
     char* actor = calloc(MAX_ACTOR_LENGTH, sizeof(char));
     const char* profile_start = strstr(post_url, "profile/");
@@ -44,6 +73,17 @@ failure:
 }
 
 
+/* get DID from given AT-URI. example:
+ * input: "at://did:plc:ybflevxvh5zylcoxbohxu224/app.bsky.feed.post/3l7det4aqy52h";
+ * output: "did:plc:ybflevxvh5zylcoxbohxu224" */
+char* get_did_from_uri(const char* uri) {
+    char* did = calloc(DID_LEN + 1, sizeof(char));
+    strncpy(did, uri + strlen(ATPROTO), DID_LEN);
+    did[DID_LEN + 1] = '\0';
+    return did;
+}
+
+
 void quote_fetch_success(emscripten_fetch_t *fetch) {
     json_object *json_response = NULL;
 
@@ -51,28 +91,36 @@ void quote_fetch_success(emscripten_fetch_t *fetch) {
     if (json_response == NULL) {
         fprintf(stderr, "failed to parse JSON response from get_quotes()\n");
     }
+
     json_object* posts;
     json_object_object_get_ex(json_response, "posts", &posts);
     int array_len = json_object_array_length(posts);
     for (int i = 0; i < array_len; i++) {
         json_object* post = json_object_array_get_idx(posts, i);
         const char* post_uri = json_object_get_string(json_object_object_get(post, "uri"));
+        const char* did = get_did_from_uri(post_uri);
+        const char* post_id = extract_post_id(post_uri);
+        get_quotes(did, post_id);
 
-        emscripten_log(EM_LOG_INFO, "uri: %s", post_uri);
+        char* https_url = post_uri_to_https(post_uri);
+
+        emscripten_log(EM_LOG_INFO, "%s", https_url);
         json_object_put(post);
+        free((char*)did); free((char*)post_id);
     }
 
     json_object_put(posts);
 }
 
 void quote_fetch_failure(emscripten_fetch_t *fetch) {
-    emscripten_log(EM_LOG_INFO, "failure!\n");
+    emscripten_log(EM_LOG_INFO, "failure! data: %s\n", fetch->data);
 }
 
 
 void get_quotes(const char* actor_did, const char* post_id) {
-    char url[256];
-    snprintf(url, sizeof(url), "https://public.api.bsky.app/xrpc/app.bsky.feed.getQuotes?uri=%s%s/app.bsky.feed.post/%s", ATPROTO, actor_did, post_id);
+    char* url = calloc(256, sizeof(char));
+    snprintf(url, 256, "https://public.api.bsky.app/xrpc/app.bsky.feed.getQuotes?uri=%s%s/app.bsky.feed.post/%s", ATPROTO, actor_did, post_id);
+    // emscripten_log(EM_LOG_INFO, "getting quotes from: %s", url);
 
     emscripten_fetch_attr_t fetch_attr;
     emscripten_fetch_attr_init(&fetch_attr);
@@ -84,6 +132,8 @@ void get_quotes(const char* actor_did, const char* post_id) {
     fetch_attr.onerror = (void (*)(emscripten_fetch_t *))quote_fetch_failure;
 
     emscripten_fetch(&fetch_attr, url);
+
+    // free(url);
 }
 
 
@@ -97,7 +147,7 @@ char* extract_post_id(const char* post_url) {
 
 
 void handle_result(char *result) {
-    emscripten_log(EM_LOG_CONSOLE, "Result: %s\n", result);
+    // emscripten_log(EM_LOG_CONSOLE, "Result: %s\n", result);
     get_quotes(result, post_id);
     free(result);
 }
