@@ -51,6 +51,11 @@ char* post_uri_to_https(const char *uri) {
 
 const char* get_actor(const char* post_url) {
     char* actor = calloc(MAX_ACTOR_LENGTH, sizeof(char));
+    if (actor == NULL) {
+        emscripten_log(EM_LOG_ERROR, "out of memory");
+        return NULL;
+    }
+
     const char* profile_start = strstr(post_url, "profile/");
 
     if (!profile_start) goto failure;
@@ -78,8 +83,13 @@ failure:
  * output: "did:plc:ybflevxvh5zylcoxbohxu224" */
 char* get_did_from_uri(const char* uri) {
     char* did = calloc(DID_LEN + 1, sizeof(char));
+    if (did == NULL) {
+        emscripten_log(EM_LOG_ERROR, "out of memory");
+        return NULL;
+    }
+
     strncpy(did, uri + strlen(ATPROTO), DID_LEN);
-    did[DID_LEN + 1] = '\0';
+    did[DID_LEN] = '\0';
     return did;
 }
 
@@ -89,24 +99,31 @@ void quote_fetch_success(emscripten_fetch_t *fetch) {
 
     json_response = json_tokener_parse(fetch->data);
     if (json_response == NULL) {
-        fprintf(stderr, "failed to parse JSON response from get_quotes()\n");
+        emscripten_log(EM_LOG_ERROR, "failed to parse JSON response from get_quotes(). data: %s\n", fetch->data);
+        return;
     }
 
     json_object* posts;
     json_object_object_get_ex(json_response, "posts", &posts);
-    int array_len = json_object_array_length(posts);
-    for (int i = 0; i < array_len; i++) {
+
+    size_t array_len = json_object_array_length(posts);
+    for (size_t i = 0; i < array_len; i++) {
         json_object* post = json_object_array_get_idx(posts, i);
+
         const char* post_uri = json_object_get_string(json_object_object_get(post, "uri"));
         const char* did = get_did_from_uri(post_uri);
         const char* post_id = extract_post_id(post_uri);
+        if (did == NULL || post_id == NULL || post_uri == NULL) {
+            emscripten_log(EM_LOG_ERROR, "did, post_id or post_uri are NULL");
+            continue;
+        }
+
         get_quotes(did, post_id);
 
         char* https_url = post_uri_to_https(post_uri);
 
         emscripten_log(EM_LOG_INFO, "%s", https_url);
-        json_object_put(post);
-        free((char*)did); free((char*)post_id);
+        free((char*)did); free((char*)post_id); free(https_url);
     }
 
     json_object_put(posts);
