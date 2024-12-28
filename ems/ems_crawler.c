@@ -126,7 +126,7 @@ void quote_fetch_success(emscripten_fetch_t *fetch) {
         free((char*)did); free((char*)post_id); free(https_url);
     }
 
-    json_object_put(posts);
+    json_object_put(json_response);
 }
 
 void quote_fetch_failure(emscripten_fetch_t *fetch) {
