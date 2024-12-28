@@ -19,8 +19,8 @@ this tool is a work-in-progress. not a lot is implemented right now.
 planned features:
 1. bsky authentication    [ ]
 2. raylib gui             [ ]
-3. faster requests        [ ]
-4. emscripten compilation [ ]
+3. faster requests        [X]
+4. emscripten compilation [X]
 
 considered features:
 1. a better algorithm w/o recursion [ ]
